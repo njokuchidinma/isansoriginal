@@ -5,6 +5,7 @@ from users.managers import CustomUserManager
 from django_userforeignkey.models.fields import UserForeignKey
 from django.contrib.auth.models import AbstractBaseUser,PermissionsMixin, BaseUserManager, Group, Permission
 from django.db import models
+import uuid
 
 
 GENDER = [
@@ -12,12 +13,12 @@ GENDER = [
     ('FEMALE', 'female'),
     ]
 class CustomUserManager(BaseUserManager):
-    def create_user(self, email_address, password=None, **extra_fields):
-        if not email_address:
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
             raise ValueError("The Email Address field must be set")
         
-        email_address = self.normalize_email(email_address)
-        user = self.model(email_address=email_address, **extra_fields)
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
         if password:
             user.set_password(password)  # This ensures the password is hashed
         else:
@@ -25,7 +26,7 @@ class CustomUserManager(BaseUserManager):
         user.save(using=self._db)
         return user
 
-    def create_superuser(self, email_address, password=None, **extra_fields):
+    def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
         extra_fields.setdefault('is_active', True)
@@ -35,13 +36,14 @@ class CustomUserManager(BaseUserManager):
         if extra_fields.get('is_superuser') is not True:
             raise ValueError("Superuser must have is_superuser=True.")
 
-        return self.create_user(email_address, password, **extra_fields)
+        return self.create_user(email, password, **extra_fields)
 
-class CustomUser (AbstractUser, PermissionsMixin):
+class CustomUser (AbstractBaseUser, PermissionsMixin):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     email = models.EmailField(unique=True)
-    gender = models.CharField(max_length=13, choices=GENDER, default='FEMALE')
+    gender = models.CharField(max_length=13, choices=GENDER, default='FEMALE', null=True, blank=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     location = models.CharField(max_length=100)
     shipping_address = models.CharField(max_length=200, blank=True, null=True)
@@ -61,15 +63,38 @@ class CustomUser (AbstractUser, PermissionsMixin):
 
     objects = CustomUserManager()
 
-    USERNAME_FIELD = 'email_address'
-    EMAIL_FIELD = 'email_address'
-    REQUIRED_FIELDS = ['full_name']
+    USERNAME_FIELD = 'email'
+    EMAIL_FIELD = 'email'
+    REQUIRED_FIELDS = ['first_name', 'last_name']
 
     def __str__(self):
-        return self.email_address
+        return self.email
 
     def has_perm(self, perm, obj=None):
         return self.is_superuser
 
     def has_module_perms(self, app_label):
         return self.is_superuser
+    
+
+class Notification(models.Model):
+    user = models.ForeignKey(CustomUser , on_delete=models.CASCADE, related_name='notifications')
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Notification for {self.user.email}: {self.message[:50]}..."
+
+class UserPreferredDeliveryCompany(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='preferred_delivery_companies')
+    delivery_company = models.ForeignKey('shop.DeliveryCompany', on_delete=models.CASCADE, related_name='preferred_by')
+
+    class Meta:
+        unique_together = ('user', 'delivery_company')
+
+    def __str__(self):
+        return f"{self.user.email} prefers {self.delivery_company.name}"
