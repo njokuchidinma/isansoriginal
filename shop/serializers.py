@@ -23,18 +23,46 @@ class ProductSerializer(ModelSerializer):
         required=False, 
         allow_null=True
     )
+    sizes = serializers.MultipleChoiceField(
+        choices=Product.SIZE_CHOICES,
+        required=False,
+        allow_empty=True
+    )
 
     class Meta:
         model = Product
         fields = ['id', 'name', 'image', 'price', 'description', 'category', 'sizes', 'barcode', 'quantity']
 
+    def to_representation(self, instance):
+        """
+        Convert stored comma-separated sizes to a list
+        """
+        ret = super().to_representation(instance)
+        ret['sizes'] = instance.get_sizes_list()
+        return ret
+
+    def to_internal_value(self, data):
+        """
+        Handle sizes conversion
+        """
+        # If sizes is a string, convert to list
+        if isinstance(data.get('sizes'), str):
+            data['sizes'] = data['sizes'].split(',')
+        return super().to_internal_value(data)
+
     def create(self, validated_data):
+        #Extract sizes
+        sizes =  validated_data.pop('sizes', [])
         # Handle barcode
         barcode_data = validated_data.pop('barcode', None)
         
         # Create product first
         product = Product.objects.create(**validated_data)
         
+        # Set sizes if provided
+        if sizes:
+            product.set_sizes(sizes)
+
         # Update barcode if provided
         if barcode_data:
             try:
@@ -55,12 +83,22 @@ class ProductSerializer(ModelSerializer):
                 raise serializers.ValidationError({
                     "barcode": ["Barcode does not exist or is already in use."]
                 })
-        
+        product.save()
         return product
 
     def update(self, instance, validated_data):
+        #Extract sizes
+        sizes = validated_data.pop('sizes', None)
         # Handle barcode update
         barcode_data = validated_data.pop('barcode', None)
+
+        # Update other fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        # Update sizes if provided
+        if sizes is not None:
+            instance.set_sizes(sizes)
         
         # If a new barcode is being assigned
         if barcode_data:
