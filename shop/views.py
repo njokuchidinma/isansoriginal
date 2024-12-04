@@ -274,7 +274,14 @@ class CartView(APIView):
         """Retrieve all cart items for the user."""
         cart_items = Cart.objects.filter(user=request.user)
         serializer = CartSerializer(cart_items, many=True)
-        return Response(serializer.data)
+        return Response({
+            'cart_items': serializer.data,
+            'total_cart_items': Cart.objects.filter(user=request.user),
+            'total_cart_value': sum(
+                item.product.price * item.quantity
+                for item in cart_items
+            )
+        })
 
     def post(self, request):
         """Add a product to the cart."""

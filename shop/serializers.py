@@ -134,14 +134,20 @@ class OrderSerializer(ModelSerializer):
 
 
 class CartSerializer(ModelSerializer):
-    product = serializers.StringRelatedField(read_only=True)
-    product_id = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), source='product') 
+    product = ProductSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), source='product')
+    total_price = serializers.SerializerMethodField() 
     class Meta:
         model = Cart
-        fields = ['id', 'user', 'product', 'product_id', 'quantity']
+        fields = ['id', 'user', 'product', 'product_id', 'quantity', 'total_price']
         read_only_fields = ['user']
 
+    def get_total_price(self, obj):
+        return obj.product.price * obj.quantity
+
 class WishlistSerializer(ModelSerializer):
+    product = ProductSerializer(read_only=True)
+
     class Meta:
         model = Wishlist
         fields = ['id', 'product']
