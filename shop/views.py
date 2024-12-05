@@ -395,16 +395,22 @@ class WishlistView(APIView):
         Add a new item to the wishlist
         """
         try:
-            # Validate product exists and is not already in wishlist
-            product_id = request.data.get('product')
+            # Validate product ID is provided
+            product_id = request.data.get('product_id')
             
             if not product_id:
                 return Response({
                     'error': 'Product ID is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Check if product exists
-            product = get_object_or_404(Product, id=product_id)
+            # Validate product exists
+            try:
+                product = Product.objects.get(id=product_id)
+            except Product.DoesNotExist:
+                return Response({
+                    'error': 'Product not found',
+                    'product_id': product_id
+                }, status=status.HTTP_404_NOT_FOUND)
             
             # Check if product is already in wishlist
             existing_wishlist_item = Wishlist.objects.filter(
@@ -418,33 +424,41 @@ class WishlistView(APIView):
                     'wishlist_item_id': existing_wishlist_item.id
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Create new wishlist item
-            serializer = WishlistSerializer(data={
-                'product': product_id
-            })
+            # Prepare serializer context
+            serializer_context = {
+                'request': request
+            }
             
+            # Create serializer with product ID
+            serializer = WishlistSerializer(
+                data={'product_id': product_id},
+                context=serializer_context
+            )
+            
+            # Validate and save wishlist item
             if serializer.is_valid():
-                wishlist_item = serializer.save(user=request.user)
+                wishlist_item = serializer.save()
                 
                 return Response({
                     'message': 'Product added to wishlist successfully',
-                    'wishlist_item': serializer.data
+                    'wishlist_item': {
+                        'id': wishlist_item.id,
+                        'product': serializer.data['product']
+                    }
                 }, status=status.HTTP_201_CREATED)
             
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-        except Product.DoesNotExist:
-            return Response({
-                'error': 'Product not found',
-                'product_id': product_id
-            }, status=status.HTTP_404_NOT_FOUND)
+            # Handle serializer validation errors
+            return Response(
+                serializer.errors, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         except Exception as e:
             return Response({
                 'error': 'An unexpected error occurred',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        
     def delete(self, request, pk):
         """
         Remove a specific item from the wishlist

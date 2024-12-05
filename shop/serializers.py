@@ -62,6 +62,8 @@ class ProductSerializer(ModelSerializer):
         # Set sizes if provided
         if sizes:
             product.set_sizes(sizes)
+        else:
+            product.sizes = None
 
         # Update barcode if provided
         if barcode_data:
@@ -98,7 +100,10 @@ class ProductSerializer(ModelSerializer):
 
         # Update sizes if provided
         if sizes is not None:
-            instance.set_sizes(sizes)
+            if sizes:
+                instance.sizes = ','.join(sizes)
+            else:
+                instance.sizes = None
         
         # If a new barcode is being assigned
         if barcode_data:
@@ -185,10 +190,27 @@ class CartSerializer(ModelSerializer):
 
 class WishlistSerializer(ModelSerializer):
     product = ProductSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all(), source='product')
 
     class Meta:
         model = Wishlist
-        fields = ['id', 'product']
+        fields = ['id', 'product', 'product_id']
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        product = validated_data.get('product')
+
+        existing_wishlist_item = Wishlist.objects.filter(user=user, product=product).first()
+        if existing_wishlist_item:
+            raise serializers.ValidationError({
+                'product_id': 'Product already exists in your wishlist'
+            })
+        
+        wishlist_item = Wishlist.objects.create(
+            user=user,
+            product=product
+        )
+        return wishlist_item
 
 class ReviewSerializer(ModelSerializer):
     user_first_name = CharField(source='user.first_name', read_only=True)
