@@ -124,6 +124,72 @@ class ProductView(APIView):
                 {"detail": "Product not found."}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+    
+    def delete(self, request, pk=None):
+        try:
+            # If no specific product ID is provided, return error
+            if not pk:
+                return Response(
+                    {"detail": "Product ID is required for deletion."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Attempt to get the product
+            product = Product.objects.get(pk=pk)
+            # Store product details before deletion
+            product_details = {
+                'id': product.id,
+                'name': product.name,
+                'sku': product.sku if hasattr(product, 'sku') else None
+            }
+
+            # Check for related records before deletion
+            related_checks = {
+                'Cart Items': Cart.objects.filter(product=product).exists(),
+                'Wishlist Items': Wishlist.objects.filter(product=product).exists()
+            }
+
+            # If any related records exist, prevent deletion
+            blocked_relations = [
+                key for key, value in related_checks.items() if value
+            ]
+
+            if blocked_relations:
+                return Response(
+                    {
+                        "detail": "Cannot delete product due to existing related records.",
+                        "blocked_by": blocked_relations
+                    }, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Delete associated barcode if exists
+            if hasattr(product, 'barcode') and product.barcode:
+                product.barcode.status = 'unused'
+                product.barcode.save()
+
+            # Delete the product
+            product.delete()
+            return Response(
+                {
+                    "message": "Product deleted successfully",
+                    "deleted_product": product_details
+                }, 
+                status=status.HTTP_200_OK
+            )
+        except Product.DoesNotExist:
+            return Response(
+                {"detail": "Product not found."}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "detail": "An error occurred while deleting the product.",
+                    "error": str(e)
+                }, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class GetProducts(APIView):
     permission_classes = [AllowAny]
@@ -272,24 +338,82 @@ class CartView(APIView):
 
     def get(self, request):
         """Retrieve all cart items for the user."""
-        cart_items = Cart.objects.filter(user=request.user)
-        serializer = CartSerializer(cart_items, many=True)
-        return Response({
-            'cart_items': serializer.data,
-            'total_cart_items': Cart.objects.filter(user=request.user),
-            'total_cart_value': sum(
+        try:
+            cart_items = Cart.objects.filter(user=request.user)
+            if not cart_items.exists():
+                return Response({
+                    'message': 'Your cart is empty',
+                    'cart_items': [],
+                    'total_cart_value': 0.00
+                }, status=status.HTTP_200_OK)
+        
+            serializer = CartSerializer(cart_items, many=True)
+
+            total_cart_value = sum(
                 item.product.price * item.quantity
                 for item in cart_items
             )
-        })
+            return Response({
+                'total_items': cart_items.count(),
+                'total_cart_value': round(total_cart_value, 2),
+                'cart_items': serializer.data
+            })
+        except Exception as e:
+            return Response({
+                'error': 'An unexpected error occurred',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 
     def post(self, request):
         """Add a product to the cart."""
-        serializer = CartSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            serializer.save(user=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            product_id = request.data.get('product_id')
+            quantity = request.data.get('quantity', 1)
+
+            if not product_id:
+                return Response({
+                    'error': 'Product ID is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                product = Product.objects.get(id=product_id)
+            except Product.DoesNotExist:
+                return Response({
+                    'error': 'Product not found',
+                    'product_id': product_id
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            existing_cart_item = Cart.objects.filter(
+                user=request.user,
+                product=product
+            ).first()
+
+            if existing_cart_item:
+                existing_cart_item.quantity += quantity
+                existing_cart_item.save()
+
+                serializer = CartSerializer(existing_cart_item)
+                return Response({
+                    'message': 'Cart item quantity udated',
+                    'cart_item': serializer.data
+                }, status=status.HTTP_200_OK)
+            
+            cart_item = Cart.objects.create(
+                user=request.user,
+                product=product,
+                quantity=quantity
+            )
+            serializer = CartSerializer(cart_item)
+            return Response({
+                'message': 'Product added to cart successfully',
+                'cart_item': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({
+                'error': 'An unexpected error occurred',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def put(self, request, pk):
         """Update quantity for a specific cart item."""
@@ -306,11 +430,30 @@ class CartView(APIView):
     def delete(self, request, pk):
         """Remove a specific cart item."""
         try:
-            cart_item = Cart.objects.get(pk=pk, user=request.user)
-            cart_item.delete()
-            return Response({"detail": "Cart item removed."}, status=status.HTTP_204_NO_CONTENT)
-        except Cart.DoesNotExist:
-            return Response({"detail": "Cart item not found."}, status=status.HTTP_404_NOT_FOUND)
+            if pk:
+                cart_item = get_object_or_404(Cart, pk=pk, user=request.user)
+                product_details = {
+                    'id': cart_item.product.id,
+                    'name': cart_item.product.name
+                }
+                return Response({
+                    'message': 'Cart item deleted successfully',
+                    'deleted_item': {
+                        'cart_item_id': pk,
+                        'product': product_details
+                    }
+                }, status=status.HTTP_200_OK)
+                
+            Cart.objects.filter(user=request.user).delete()
+            return Response({
+                'message': 'Cart cleared successfully'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'error': 'An unexpected error occurred',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class OrderView(APIView):
