@@ -51,6 +51,9 @@ class ProductSerializer(ModelSerializer):
                 for size in data['sizes'].split(',')
                 if size.strip()
             ]
+        if 'sizes' not in data:
+            data['sizes'] = []
+
         return super().to_internal_value(data)
 
     def create(self, validated_data):
@@ -66,7 +69,7 @@ class ProductSerializer(ModelSerializer):
         if sizes:
             product.set_sizes(sizes)
         else:
-            product.sizes = None
+            product.sizes = ''
 
         # Update barcode if provided
         if barcode_data:
@@ -106,7 +109,7 @@ class ProductSerializer(ModelSerializer):
             if sizes:
                 instance.sizes = ','.join(sizes)
             else:
-                instance.sizes = None
+                instance.sizes = ''
         
         # If a new barcode is being assigned
         if barcode_data:
