@@ -22,7 +22,7 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     description = models.TextField()
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
-    sizes = models.CharField(max_length=100, choices=SIZE_CHOICES, null=False, blank=True, help_text="Comma-separated sizes (XS,S,M,L,XL)")  # e.g., "S, M, L, XL"
+    sizes = models.CharField(max_length=100, null=True, blank=True, help_text="Comma-separated sizes (XS,S,M,L,XL)")  # e.g., "S, M, L, XL"
     barcode = models.OneToOneField('Barcode', on_delete=models.SET_NULL, null=True, blank=True, related_name="product",)
     quantity = models.PositiveIntegerField(default=0)  # Total stock
     is_in_stock = models.BooleanField(default=True)  # Stock status
@@ -30,7 +30,7 @@ class Product(models.Model):
     def clean(self):
         # Validate sizes
         if self.sizes:
-            size_list = self.sizes.split(',')
+            size_list = [size.strip() for size in self.sizes.split(',')]
             valid_sizes = [choice[0] for choice in self.SIZE_CHOICES]
             invalid_sizes = set(size_list) - set(valid_sizes)
             
@@ -43,7 +43,7 @@ class Product(models.Model):
         """
         Convert sizes string to a list
         """
-        return self.sizes.split(',') if self.sizes else []
+        return [size.strip() for size in self.sizes.split(',')] if self.sizes else []
 
     def set_sizes(self, sizes_list):
         """
@@ -56,8 +56,7 @@ class Product(models.Model):
         if invalid_sizes:
             raise ValueError(f"Invalid sizes: {invalid_sizes}")
         
-        self.sizes = ','.join(sizes_list)
-
+        self.sizes = ','.join(sorted(set(sizes_list)))
     def save(self, *args, **kwargs):
         self.full_clean()
         # Automatically update stock status based on quantity

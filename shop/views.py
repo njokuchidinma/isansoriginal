@@ -63,6 +63,14 @@ class ProductView(APIView):
     def post(self, request):
         # Prepare data
         data = request.data.copy()
+
+        if 'sizes' in data:
+            if isinstance(data['sizes'], str):
+                data['sizes'] = [
+                    size.strip()
+                    for size in data['sizes'].split(',') 
+                    if size.strip()
+                ]
         
         # Handle barcode
         if 'barcode' in data and isinstance(data['barcode'], dict):

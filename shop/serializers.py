@@ -23,11 +23,10 @@ class ProductSerializer(ModelSerializer):
         required=False, 
         allow_null=True
     )
-    sizes = serializers.MultipleChoiceField(
-        choices=Product.SIZE_CHOICES,
-        required=False,
-        allow_empty=True
-    )
+    sizes = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=[choice[0] for choice in Product.SIZE_CHOICES]
+        ), required=False, allow_empty=True)
 
     class Meta:
         model = Product
@@ -47,7 +46,11 @@ class ProductSerializer(ModelSerializer):
         """
         # If sizes is a string, convert to list
         if isinstance(data.get('sizes'), str):
-            data['sizes'] = data['sizes'].split(',')
+            data['sizes'] = [
+                size.strip()
+                for size in data['sizes'].split(',')
+                if size.strip()
+            ]
         return super().to_internal_value(data)
 
     def create(self, validated_data):
