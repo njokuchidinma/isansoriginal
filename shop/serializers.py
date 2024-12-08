@@ -15,132 +15,111 @@ class BarcodeSerializer(ModelSerializer):
 
 class ProductSerializer(ModelSerializer):
     category = serializers.SlugRelatedField(
-        slug_field='name', 
+        slug_field='name',
         queryset=Category.objects.all()
     )
     barcode = serializers.PrimaryKeyRelatedField(
-        queryset=Barcode.objects.filter(status='unused'), 
-        required=False, 
+        queryset=Barcode.objects.filter(status='unused'),
+        required=False,
         allow_null=True
     )
-    sizes = serializers.ListField(
-        child=serializers.ChoiceField(
-            choices=[choice[0] for choice in Product.SIZE_CHOICES]
-        ), required=False, allow_empty=True)
+    sizes = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Product
         fields = ['id', 'name', 'image', 'price', 'description', 'category', 'sizes', 'barcode', 'quantity']
 
+    def validate_sizes(self, value):
+        """
+        Validate and parse the sizes field.
+        It should be a comma-separated string of valid size choices.
+        """
+        if not value:
+            return ""  # Allow empty sizes
+
+        sizes = [size.strip() for size in value.split(",") if size.strip()]
+        valid_sizes = [choice[0] for choice in Product.SIZE_CHOICES]
+        invalid_sizes = set(sizes) - set(valid_sizes)
+
+        if invalid_sizes:
+            raise serializers.ValidationError(
+                f"The following sizes are invalid: {', '.join(invalid_sizes)}"
+            )
+
+        return ",".join(sizes)  # Return a clean comma-separated string
+
     def to_representation(self, instance):
         """
-        Convert stored comma-separated sizes to a list
+        Convert stored sizes (comma-separated string) to a list for the response.
         """
         ret = super().to_representation(instance)
-        ret['sizes'] = instance.get_sizes_list()
+        ret['sizes'] = instance.get_sizes_list()  # Convert to list
         return ret
 
     def to_internal_value(self, data):
         """
-        Handle sizes conversion
+        Convert sizes field from list or comma-separated string to consistent format.
         """
-        # If sizes is a string, convert to list
-        if isinstance(data.get('sizes'), str):
-            data['sizes'] = [
-                size.strip()
-                for size in data['sizes'].split(',')
-                if size.strip()
-            ]
-        if 'sizes' not in data:
-            data['sizes'] = []
-
+        sizes = data.get('sizes', '')
+        if isinstance(sizes, list):  # If frontend sends as a list
+            sizes = ",".join(sizes)
+        data['sizes'] = sizes.strip()
         return super().to_internal_value(data)
 
     def create(self, validated_data):
-        #Extract sizes
-        sizes =  validated_data.pop('sizes', [])
-        # Handle barcode
+        sizes = validated_data.pop('sizes', '')
         barcode_data = validated_data.pop('barcode', None)
-        
-        # Create product first
-        product = Product.objects.create(**validated_data)
-        
-        # Set sizes if provided
-        if sizes:
-            product.set_sizes(sizes)
-        else:
-            product.sizes = ''
 
-        # Update barcode if provided
+        # Create the product
+        product = Product.objects.create(**validated_data)
+        product.set_sizes(sizes.split(',') if sizes else [])
+
+        # Handle barcode
         if barcode_data:
             try:
-                # Get the barcode and update its status
-                barcode = Barcode.objects.get(
-                    pk=barcode_data.id, 
-                    status='unused'
-                )
+                barcode = Barcode.objects.get(pk=barcode_data.id, status='unused')
                 barcode.status = 'used'
                 barcode.save()
-                
-                # Assign barcode to product
                 product.barcode = barcode
                 product.save()
             except Barcode.DoesNotExist:
-                # Rollback product creation if barcode is invalid
                 product.delete()
-                raise serializers.ValidationError({
-                    "barcode": ["Barcode does not exist or is already in use."]
-                })
-        product.save()
+                raise serializers.ValidationError(
+                    {"barcode": ["Barcode does not exist or is already in use."]}
+                )
         return product
 
     def update(self, instance, validated_data):
-        #Extract sizes
         sizes = validated_data.pop('sizes', None)
-        # Handle barcode update
         barcode_data = validated_data.pop('barcode', None)
 
-        # Update other fields
+        # Update fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        # Update sizes if provided
         if sizes is not None:
-            if sizes:
-                instance.sizes = ','.join(sizes)
-            else:
-                instance.sizes = ''
-        
-        # If a new barcode is being assigned
+            instance.set_sizes(sizes.split(',') if sizes else [])
+
+        # Handle barcode update
         if barcode_data:
             try:
-                # Get the new barcode
-                new_barcode = Barcode.objects.get(
-                    pk=barcode_data.id, 
-                    status='unused'
-                )
-                
-                # If product already has a barcode, mark it as unused
+                new_barcode = Barcode.objects.get(pk=barcode_data.id, status='unused')
+
+                # If an old barcode exists, mark it as unused
                 if instance.barcode:
                     old_barcode = instance.barcode
                     old_barcode.status = 'unused'
                     old_barcode.save()
-                
-                # Update new barcode status
+
+                # Assign new barcode
                 new_barcode.status = 'used'
                 new_barcode.save()
-                
-                # Assign new barcode
                 instance.barcode = new_barcode
             except Barcode.DoesNotExist:
-                raise serializers.ValidationError({
-                    "barcode": ["Barcode does not exist or is already in use."]
-                })
-        
-        # Update other fields
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        
+                raise serializers.ValidationError(
+                    {"barcode": ["Barcode does not exist or is already in use."]}
+                )
+
         instance.save()
         return instance
 

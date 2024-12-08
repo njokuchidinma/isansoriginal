@@ -380,38 +380,37 @@ class CartView(APIView):
             quantity = request.data.get('quantity', 1)
 
             if not product_id:
-                return Response({
-                    'error': 'Product ID is required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+                return Response({'error': 'Product ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Validate quantity
+            try:
+                quantity = int(quantity)
+                if quantity <= 0:
+                    return Response({'error': 'Quantity must be a positive integer'}, status=status.HTTP_400_BAD_REQUEST)
+            except ValueError:
+                return Response({'error': 'Quantity must be a valid integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if product exists
             try:
                 product = Product.objects.get(id=product_id)
             except Product.DoesNotExist:
-                return Response({
-                    'error': 'Product not found',
-                    'product_id': product_id
-                }, status=status.HTTP_404_NOT_FOUND)
-            
-            existing_cart_item = Cart.objects.filter(
-                user=request.user,
-                product=product
-            ).first()
+                return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Check if the cart item already exists
+            existing_cart_item = Cart.objects.filter(user=request.user, product=product).first()
 
             if existing_cart_item:
+                # Update quantity for existing item
                 existing_cart_item.quantity += quantity
                 existing_cart_item.save()
-
                 serializer = CartSerializer(existing_cart_item)
                 return Response({
-                    'message': 'Cart item quantity udated',
+                    'message': 'Cart item quantity updated',
                     'cart_item': serializer.data
                 }, status=status.HTTP_200_OK)
-            
-            cart_item = Cart.objects.create(
-                user=request.user,
-                product=product,
-                quantity=quantity
-            )
+
+            # Create a new cart item
+            cart_item = Cart.objects.create(user=request.user, product=product, quantity=quantity)
             serializer = CartSerializer(cart_item)
             return Response({
                 'message': 'Product added to cart successfully',
@@ -422,6 +421,7 @@ class CartView(APIView):
                 'error': 'An unexpected error occurred',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
     def put(self, request, pk):
         """Update quantity for a specific cart item."""
@@ -439,11 +439,13 @@ class CartView(APIView):
         """Remove a specific cart item."""
         try:
             if pk:
+                # Delete specific cart item
                 cart_item = get_object_or_404(Cart, pk=pk, user=request.user)
                 product_details = {
                     'id': cart_item.product.id,
                     'name': cart_item.product.name
                 }
+                cart_item.delete()  # Perform deletion
                 return Response({
                     'message': 'Cart item deleted successfully',
                     'deleted_item': {
@@ -451,17 +453,16 @@ class CartView(APIView):
                         'product': product_details
                     }
                 }, status=status.HTTP_200_OK)
-                
+
+            # Clear entire cart
             Cart.objects.filter(user=request.user).delete()
-            return Response({
-                'message': 'Cart cleared successfully'
-            }, status=status.HTTP_200_OK)
-            
+            return Response({'message': 'Cart cleared successfully'}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({
                 'error': 'An unexpected error occurred',
                 'details': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 class OrderView(APIView):
@@ -657,32 +658,27 @@ class GetReview(APIView):
 
     def get(self, request, product_id):
         try:
-            product = get_object_or_404(Product, id=product_id)
             reviews = Review.objects.filter(product_id=product_id)
-
+            
             if not reviews.exists():
                 return Response({
                     'message': 'No reviews found for this product',
                     'product_id': product_id
                 }, status=status.HTTP_404_NOT_FOUND)
+
             serializer = ReviewSerializer(reviews, many=True)
             return Response({
                 'product_id': product_id,
                 'total_reviews': reviews.count(),
                 'reviews': serializer.data
-            }, status=status.HTTP_200_OK)  
-     
-        except Product.DoesNotExist:
-            return Response({
-                'error': 'Product not found',
-                'product_id': product_id
-            }, status=status.HTTP_404_NOT_FOUND)
-        
+            }, status=status.HTTP_200_OK)
+
         except Exception as e:
             return Response({
                 'error': 'An unexpected error occurred',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class ReviewView(APIView):
     permission_classes = [IsAuthenticated]
