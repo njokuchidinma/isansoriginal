@@ -371,10 +371,9 @@ class CartView(APIView):
                 'error': 'An unexpected error occurred',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
 
     def post(self, request):
-        """Add a product to the cart."""
+        """Add a product to the cart or update the quantity of an existing product."""
         try:
             product_id = request.data.get('product_id')
             quantity = request.data.get('quantity', 1)
@@ -422,7 +421,6 @@ class CartView(APIView):
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
     def put(self, request, pk):
         """Update quantity for a specific cart item."""
         try:
@@ -461,7 +459,7 @@ class CartView(APIView):
             return Response({
                 'error': 'An unexpected error occurred',
                 'details': str(e)
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 

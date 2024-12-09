@@ -199,9 +199,10 @@ class WishlistSerializer(ModelSerializer):
 
 class ReviewSerializer(ModelSerializer):
     user_first_name = CharField(source='user.first_name', read_only=True)
+    user_last_name = CharField(source='user.last_name', read_only=True)
     class Meta:
         model = Review
-        fields = ['id', 'user', 'user_first_name', 'product', 'comment', 'rating', 'created_at']
+        fields = ['id', 'user', 'user_first_name', 'user_last_name','product', 'comment', 'rating', 'created_at']
 
 
 class AdminOrderHistorySerializer(ModelSerializer):
